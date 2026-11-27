@@ -65,3 +65,85 @@ chmod +x /usr/bin/babi
 rm -f /tmp/babi_hold
 babi
 ````
+## babi v13
+````
+cat > /usr/bin/babi << 'EOF'
+#!/bin/bash
+CFG=/etc/xray/config.json
+LOG=/var/log/xray/access.log
+HOLD_FILE=/tmp/babi_hold
+touch $HOLD_FILE
+while true; do
+clear
+echo "=== BABI v13 - CEPET | JENDELA 120 DETIK | HOLD 30 DETIK ==="
+echo "Mentah = itungan saiki | Ditahan = sing ditampilno"
+echo "Tekan ENTER gawe balik menu"
+NOW=$(date +%s)
+
+# --- UPGRADE: Woco log mung 1x gawe kabeh akun ---
+AGG=/tmp/babi_agg
+tail -n 30000 "$LOG" 2>/dev/null | awk -v now=$NOW '
+{
+  # golek email: xxx
+  for(i=1;i<=NF;i++) if($i=="email:") akun=$(i+1)
+  if(akun=="") next
+  split($1,a,"/"); split($2,b,":"); split(b[3],c,".")
+  ep=mktime(a[1]" "a[2]" "a[3]" "b[1]" "b[2]" "c[1])
+  if(ep > last[akun]) { last[akun]=ep; laststr[akun]=$1" "$2 }
+  if(now-ep<=120 && now-ep>=-5) cnt[akun]++
+}
+END{ for(k in last) print k" "last[k]" "laststr[k]" "(cnt[k]+0) }
+' > $AGG
+
+NO=0
+for akun in $(grep '###' "$CFG" | awk '{print $2}' | sort -u); do
+  LINE=$(grep -w "^$akun" "$AGG")
+  [ -z "$LINE" ] && continue
+  LAST_EPOCH=$(echo "$LINE" | awk '{print $2}')
+  LAST=$(echo "$LINE" | awk '{print $3" "$4}')
+  CNT120=$(echo "$LINE" | awk '{print $5}')
+  DIFF=$(( NOW - LAST_EPOCH ))
+  if [[ $DIFF -gt 15 ]]; then
+    sed -i "/^$akun /d" $HOLD_FILE
+    continue
+  fi
+  EST=$(( (CNT120 + 35) / 70 ))
+  if [[ $EST -lt 1 ]]; then EST=1; fi
+  OLD=$(grep "^$akun " $HOLD_FILE | awk '{print $2}')
+  OLD_TIME=$(grep "^$akun " $HOLD_FILE | awk '{print $3}')
+  [ -z "$OLD" ] && OLD=$EST && OLD_TIME=$NOW
+  if [[ $EST -ne $OLD ]]; then
+    if [[ $((NOW - OLD_TIME)) -gt 30 ]]; then
+      FINAL=$EST
+      sed -i "/^$akun /d" $HOLD_FILE
+      echo "$akun $FINAL $NOW" >> $HOLD_FILE
+    else
+      FINAL=$OLD
+    fi
+  else
+    FINAL=$EST
+    sed -i "/^$akun /d" $HOLD_FILE
+    echo "$akun $FINAL $NOW" >> $HOLD_FILE
+  fi
+  NO=$((NO + 1))
+  echo ""
+  echo "$NO. user : $akun"
+  echo "   last : $LAST (aktif $DIFF detik lalu)"
+  echo "   trafik 120 detik : $CNT120 line | mentah : $EST HP | ditahan : $FINAL HP"
+  echo "   => Estimasi : $FINAL HP"
+done
+echo ""
+echo "=========================================="
+echo "Total online : $NO user"
+echo "Tekan [ENTER] balik menu..."
+if read -t 3 -rsn1 key; then
+  break
+fi
+done
+clear
+menu
+EOF
+chmod +x /usr/bin/babi
+rm -f /tmp/babi_hold /tmp/babi_agg
+babi
+````
